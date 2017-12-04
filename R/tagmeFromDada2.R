@@ -1,6 +1,14 @@
+#' Assign taxonomy to an input Seqtab variable, exported from Dada2
+#'
+#' @param seqtab The seqtab object produced by Dada2.
+#' @param db The directory containing the downloaded RDS and TXT files corresponding to your amplicon region. The directory name must end with "/".
+#' @param specificity The Specificity that will determine the threshold score for assignment.
+#' @param batch The maximum number of sequences to be assigned per batch. Bigger batches demand more memory.
+#'
+#' @return A table containing the taxonomic assignment and the score to each sequence.
+#'
+#' @export
 tagmeFromDada2 <- function(seqtab, db = "./", specificity = 0.8, batch = 50000){
-  require(seqinr)
-  require(randomForest)
 
   kmer_size=4
 
@@ -50,13 +58,13 @@ tagmeFromDada2 <- function(seqtab, db = "./", specificity = 0.8, batch = 50000){
   # the colnames will be each kmer in upper case
   colnames(final_matrix)<-toupper(nonred_main)
   # the row names will be the ids of the sequence
-  nomes = paste0("sq", seq(length(colnames(seqtab))))
+  nomes = colnames(seqtab)
 
 
   # For each sequence we calculate the kmer frequency
   for(si in seq_along(colnames(seqtab))){
     sequence <- s2c(tolower(colnames(seqtab)[si])) # the sequence itself
-    seqid <- paste0("sq", si) # the sequence identifier
+    seqid <- nomes[si] # the sequence identifier
     # to calculate the frequencies we call the function count of the package seqinr
     frequencies <- seqinr::count(sequence, kmer_size)
 
