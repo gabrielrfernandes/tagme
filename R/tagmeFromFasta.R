@@ -11,6 +11,7 @@
 tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
 
   require("randomForest")
+  require("seqinr")
 
   kmer_size=4
 

@@ -11,6 +11,7 @@
 tagmeFromDada2 <- function(seqtab, db = "./", specificity = 0.8, batch = 50000){
 
   require("randomForest")
+  require("seqinr")
 
   kmer_size=4
 
@@ -41,7 +42,7 @@ tagmeFromDada2 <- function(seqtab, db = "./", specificity = 0.8, batch = 50000){
 
   for(i in 1:length(kmers)){
     inner_tetra<-kmers[i]
-    compl<-c2s(rev(comp(s2c(inner_tetra))))
+    compl<-seqinr::c2s(rev(seqinr::comp(seqinr::s2c(inner_tetra))))
     # if the kmer is not in the array we put it and set the reverse complement
     if(is.null(hash_nonred[[inner_tetra]])){
       nonred_main[index]<-inner_tetra
