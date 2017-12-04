@@ -10,6 +10,8 @@
 #' @export
 tagmeFromDada2 <- function(seqtab, db = "./", specificity = 0.8, batch = 50000){
 
+  require("randomForest")
+
   kmer_size=4
 
   substrRight <- function(x, n){

@@ -8,6 +8,8 @@
 
 split_taxa = function (taxonomy) {
 
+  require("stringr")
+
   splited = stringr::str_split_fixed(taxonomy$Taxonomy, pattern = ";", 7)
   splited = gsub(".__", "", splited)
   for (i in 1:dim(splited)[1]) {

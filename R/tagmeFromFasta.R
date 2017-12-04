@@ -10,6 +10,8 @@
 #' @export
 tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
 
+  require("randomForest")
+
   kmer_size=4
 
   substrRight <- function(x, n){
@@ -24,7 +26,7 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
   }
 
   # creating a sequence object from fasta file
-  seqobj <- read.fasta(file = file, forceDNAtolower = T, set.att = FALSE)
+  seqobj <- seqinr::read.fasta(file = file, forceDNAtolower = T, set.att = FALSE)
 
   # Generating all kmer possibilities to format the header.
   # I am passing a toy sequence just to avoid heavy calculations.

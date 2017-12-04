@@ -10,6 +10,8 @@
 #' @export
 summarize.by.level = function (count.table, taxonomy, level = "Genus", taxa.are.rows = FALSE) {
 
+  require("stringr")
+
   count.table = as.data.frame(count.table)
 
   if (isTRUE(taxa.are.rows)) {
