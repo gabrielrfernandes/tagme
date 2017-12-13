@@ -35,7 +35,10 @@ summarize.by.level = function (count.table, taxonomy, level = "Genus", taxa.are.
   colnames(splited) <- c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Specie")
   rownames(splited) = taxonomy$seqID
 
-  table_aggregate = aggregate(count.table, by=list(as.factor(splited[,level])), FUN=sum)
+  merged = merge(count.table, data.frame(Taxon = splited[,level]), by = "row.names")
+  merged = merged[,-1]
+  size = ncol(merged)
+  table_aggregate = aggregate(merged[,-size], by=list(as.factor(merged$Taxon)), FUN=sum)
   row.names(table_aggregate) = table_aggregate[,1]
   table_aggregate = table_aggregate[,-1]
 
