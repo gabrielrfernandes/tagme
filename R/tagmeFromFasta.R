@@ -9,31 +9,31 @@
 #'
 #' @export
 tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
-
+  
   require("randomForest")
   require("seqinr")
-
+  
   kmer_size=4
-
+  
   substrRight <- function(x, n){
     substr(x, nchar(x)-n+1, nchar(x))
   }
   if (substrRight(db, 1) != "/") {
     stop("The path to the DATABASE directory must end with \"/\".\n", call. = FALSE)
   }
-
+  
   if(!file.exists(file)){
     stop(paste(file, "not found."))
   }
-
+  
   # creating a sequence object from fasta file
   seqobj <- seqinr::read.fasta(file = file, forceDNAtolower = T, set.att = FALSE)
-
+  
   # Generating all kmer possibilities to format the header.
   # I am passing a toy sequence just to avoid heavy calculations.
   kmers<-seqinr::count("a", kmer_size)
   kmers<-names(kmers)
-
+  
   # We consider the frequency of a kmer: kmer frequency plus the frequency of the
   # reverse complement. So we will split all the kmers into: [1] Main kmers;
   # [2] Kmer reverse complement.
@@ -41,8 +41,8 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
   nonred_rev<-NULL # will store the reverse complement of the main kmers
   hash_nonred <- new.env(hash = TRUE) # hash to control the kmers and reverse complements
   index<-1
-
-
+  
+  
   for(i in 1:length(kmers)){
     inner_tetra<-kmers[i]
     compl<-c2s(rev(comp(s2c(inner_tetra))))
@@ -56,11 +56,11 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
       index<-index+1
     }
   }
-
+  
   # For matter of performance we create the whole matrix with zero because is expected to have a sparse
   # matrix
   final_matrix <- matrix(0, nrow = length(seqobj), ncol = length(nonred_main))
-
+  
   # the colnames will be each kmer in upper case
   colnames(final_matrix)<-toupper(nonred_main)
   # the row names will be the ids of the sequence
@@ -71,7 +71,7 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
     seqid <- names(seqobj)[si] # the sequence identifier
     # to calculate the frequencies we call the function count of the package seqinr
     frequencies <- seqinr::count(sequence, kmer_size)
-
+    
     # for each kmer in the array nonred_main we sum its frequency with the reverse
     # complement
     for(i in 1:length(nonred_main)){
@@ -84,13 +84,13 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
     }
   }
   data.file = data.frame(final_matrix, seqID=nomes)
-
+  
   fullsize = dim(data.file)[1]
   times = fullsize%/%batch
   remain = fullsize%%batch
-
+  
   if (dim(data.file)[1] > batch) {
-
+    
     for (r in 0:times) {
       if (r == times) {
         start = start+batch
@@ -102,16 +102,18 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
         start = start+batch
         end = end+batch
       }
-
+      
       cat (r,": ",start,"-",end,"\n\n")
-
+      
       data = data.file[start:end,]
-
+      
+      if (file.exists(paste(db,"specie.txt", sep = ""))){
+      
       cat("Starting Species... ")
-
+      
       table = read.table(paste(db,"specie.txt",sep = ""), header = T, row.names = 1, sep = "\t")
       cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+      
       model = readRDS(paste(db,"species2.rds", sep = ""))
       pred = predict(model, newdata=data)
       pred.prob = predict(model, newdata=data, type="prob")
@@ -121,7 +123,7 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
       result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result$Ratio[result$Ratio=="Inf"] = 10
       result.final = result[which(result$Ratio>cutoff),]
-
+      
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=cutoff)])
       data = unique(merge(Rest, data))
       model = readRDS(paste(db,"species.uniq.rds", sep = ""))
@@ -130,89 +132,153 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
       result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result$Ratio[result$Ratio=="Inf"] = 10
       result.final = rbind(result.final, result[which(result$Ratio>cutoff),])
-
+      
       number = dim(result.final)[1]
       cat(number, " assigned\n\n")
-
+      
+      } else {
+        cat ("The file specie.txt is missing, skipping assigning species...\n")
+      }
+      
+      if (file.exists(paste(db,"genus.txt", sep = ""))){
+      
       cat("Starting Genus... ")
-
+      
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=cutoff)])
-
+      
+      if (file.exists(paste(db,"family.txt", sep = ""))){
       table = read.table(paste(db,"genus.txt", sep=""), header = T, row.names = 1, sep = "\t")
       cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+      }
+      
       data = unique(merge(Rest, data))
       model = readRDS(paste(db,"genus2.rds", sep=""))
       pred = predict(model, newdata=data)
       pred.prob = predict(model, newdata=data, type="prob")
       result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result$Ratio[result$Ratio=="Inf"] = 10
-      result.final = rbind(result.final, result[which(result$Ratio>cutoff),])
-
+      if (file.exists(paste(db,"family.txt", sep = ""))){
+        result.final = rbind(result.final, result[which(result$Ratio > 
+                                                          cutoff), ])
+      } else {
+        result.final = rbind(result.final, result[which(result$Ratio > 
+                                                          (1)), ])
+      }
+      
       number = dim(result.final)[1]
       cat(number, " assigned\n\n")
-
+      
+      
+      } else {
+        cat ("The file genus.txt is missing, skipping assigning genus...\n")
+      }
+      
+      if (file.exists(paste(db,"family.txt", sep = ""))){
+      
       cat("Starting Family... ")
-
+      
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+      
+      if (file.exists(paste(db,"order.txt", sep = ""))){
       table = read.table(paste(db,"family.txt", sep=""), header = T, row.names = 1, sep = "\t")
       cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+      }
+      
       data = unique(merge(Rest, data))
       model = readRDS(paste(db,"family.rds", sep=""))
       pred = predict(model, newdata=data)
       pred.prob = predict(model, newdata=data, type="prob")
       result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result$Ratio[result$Ratio=="Inf"] = 10
-      result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
-
+      
+      if (file.exists(paste(db,"order.txt", sep = ""))){
+        result.final = rbind(result.final, result[which(result$Ratio > 
+                                                          (cutoff)), ])
+      } else {
+        result.final = rbind(result.final, result[which(result$Ratio > 
+                                                          (1)), ])  
+      }
+      
       number = dim(result.final)[1]
       cat(number, " assigned\n\n")
-
+      
+      } else {
+        cat ("The file family.txt is missing, skipping assigning family...\n")
+      }
+      
+      if (file.exists(paste(db,"order.txt", sep = ""))){
+      
       cat("Starting Order... ")
-
+      
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+      
+      if (file.exists(paste(db,"class.txt", sep = ""))){
       table = read.table(paste(db,"order.txt", sep = ""),header = T, row.names = 1, sep = "\t")
       cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+      }
+      
       data = unique(merge(Rest, data))
       model = readRDS(paste(db,"order.rds", sep = ""))
       pred = predict(model, newdata=data)
       pred.prob = predict(model, newdata=data, type="prob")
       result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result$Ratio[result$Ratio=="Inf"] = 10
-      result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
-
+      
+      if (file.exists(paste(db,"class.txt", sep = ""))){
+        result.final = rbind(result.final, result[which(result$Ratio > 
+                                                          (cutoff)), ])
+      } else {
+        result.final = rbind(result.final, result[which(result$Ratio > (1)), ]) 
+      }
+      
       number = dim(result.final)[1]
       cat(number, " assigned\n\n")
-
+      
+      } else {
+        cat ("The file order.txt is missing, skipping assigning order...\n")
+      }
+      
+      if (file.exists(paste(db,"class.txt", sep = ""))){
+      
       cat("Starting Class... ")
-
+      
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+      
+      if (file.exists(paste(db,"phylum.txt", sep = ""))){
       table = read.table(paste(db,"class.txt", sep=""), header = T, row.names = 1, sep = "\t")
       cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+      }
+      
       data = unique(merge(Rest, data))
       model = readRDS(paste(db,"class.rds", sep = ""))
       pred = predict(model, newdata=data)
       pred.prob = predict(model, newdata=data, type="prob")
       result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result$Ratio[result$Ratio=="Inf"] = 10
-      result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
-
+      
+      if (file.exists(paste(db,"phylum.txt", sep = ""))){
+        result.final = rbind(result.final, result[which(result$Ratio > 
+                                                          (cutoff)), ])
+      } else {
+        result.final = rbind(result.final, result[which(result$Ratio > (1)), ]) 
+      }
+      
       number = dim(result.final)[1]
       cat(number, " assigned\n\n")
-
+      
+      } else {
+        cat ("The file class.txt is missing, skipping assigning class...\n")
+      }
+      
+      if (file.exists(paste(db,"phylum.txt", sep = ""))){
+      
       cat("Starting Phylum... ")
-
+      
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+      
       table = read.table(paste(db,"phylum.txt",sep=""), header = T, row.names = 1, sep = "\t")
       cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+      
       data = unique(merge(Rest, data))
       model = readRDS(paste(db,"phylum.rds", sep = ""))
       pred = predict(model, newdata=data)
@@ -220,14 +286,20 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
       result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result$Ratio[result$Ratio=="Inf"] = 10
       result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
-
+      
       number = dim(result.final)[1]
       cat(number, " assigned\n\n")
-
+      
+      } else {
+        cat ("The file phylum.txt is missing, skipping assigning Phylum...\n")
+      }
+      
+      if (file.exists(paste(db,"domain.rds", sep = ""))){
+      
       cat("Starting Domain... ")
-
+      
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+      
       data = unique(merge(Rest, data))
       model = readRDS(paste(db,"domain.rds", sep = ""))
       pred = predict(model, newdata=data)
@@ -235,18 +307,22 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
       result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result$Ratio[result$Ratio=="Inf"] = 10
       result.final = rbind(result.final, result[which(result$Ratio>(1)),])
-
+      
       number = dim(result.final)[1]
       cat(number, " assigned\n\n")
-
+	  
+	  } else {
+        cat ("The file domain.rds is missing, skipping assigning domain...\n")
+      }
+      
       cat("Printing Unassigned... \n\n")
-
+      
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(1))])
       if (dim(Rest)[1]>0) {
         data = unique(merge(Rest, data))
         pred = predict(model, newdata=data)
         pred.prob = predict(model, newdata=data, type="prob")
-        result = data.frame(seqID=data$seqID, Taxonomy="Unassigned", Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
+        result = data.frame(seqID=data$seqID, Taxonomy= NA, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
         result.final = rbind(result.final, result)
       }
       if (r == 0) {
@@ -259,16 +335,17 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
       }
       r = r+1
     }
-
+    
   } else {
-
+    
     data = data.file
-
+    if (file.exists(paste(db,"specie.txt", sep = ""))){
+      
     cat("Starting Species... ")
-
+    
     table = read.table(paste(db,"specie.txt",sep = ""), header = T, row.names = 1, sep = "\t")
     cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+    
     model = readRDS(paste(db,"species2.rds", sep = ""))
     pred = predict(model, newdata=data)
     pred.prob = predict(model, newdata=data, type="prob")
@@ -278,7 +355,7 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
     result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
     result$Ratio[result$Ratio=="Inf"] = 10
     result.final = result[which(result$Ratio>cutoff),]
-
+    
     Rest = data.frame(seqID = result$seqID[which(result$Ratio<=cutoff)])
     data = unique(merge(Rest, data))
     model = readRDS(paste(db,"species.uniq.rds", sep = ""))
@@ -287,25 +364,39 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
     result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
     result$Ratio[result$Ratio=="Inf"] = 10
     result.final = rbind(result.final, result[which(result$Ratio>cutoff),])
-
+    
     number = dim(result.final)[1]
     cat(number, " assigned\n\n")
-
+    
+    } else {
+      cat ("The file specie.txt is missing, skipping assigning species...\n")
+    }
+    
+    if (file.exists(paste(db,"genus.txt", sep = ""))){
+    
     cat("Starting Genus... ")
-
+    
     Rest = data.frame(seqID = result$seqID[which(result$Ratio<=cutoff)])
-
+    
+    if (file.exists(paste(db,"family.txt", sep = ""))){
     table = read.table(paste(db,"genus.txt", sep=""), header = T, row.names = 1, sep = "\t")
     cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+    }
+    
     data = unique(merge(Rest, data))
     model = readRDS(paste(db,"genus2.rds", sep=""))
     pred = predict(model, newdata=data)
     pred.prob = predict(model, newdata=data, type="prob")
     result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
     result$Ratio[result$Ratio=="Inf"] = 10
-    result.final = rbind(result.final, result[which(result$Ratio>cutoff),])
-
+    if (file.exists(paste(db,"family.txt", sep = ""))){
+      result.final = rbind(result.final, result[which(result$Ratio > 
+                                                        cutoff), ])
+    } else {
+      result.final = rbind(result.final, result[which(result$Ratio > 
+                                                        (1)), ])
+    }
+    
     if(file.exists("genus.uniq.rds")){
       Rest = data.frame(seqID = result$seqID[which(result$Ratio<=cutoff)])
       data = unique(merge(Rest, data))
@@ -318,83 +409,139 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
     }
     number = dim(result.final)[1]
     cat(number, " assigned\n\n")
-
+    
+    } else {
+      cat ("The file genus.txt is missing, skipping assigning genus...\n")
+    }
+    
+    if (file.exists(paste(db,"family.txt", sep = ""))){
+    
     cat("Starting Family... ")
-
+    
     Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+    
+    if (file.exists(paste(db,"order.txt", sep = ""))){
     table = read.table(paste(db,"family.txt", sep=""), header = T, row.names = 1, sep = "\t")
     cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+    }
+    
     data = unique(merge(Rest, data))
     model = readRDS(paste(db,"family.rds", sep=""))
     pred = predict(model, newdata=data)
     pred.prob = predict(model, newdata=data, type="prob")
     result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
     result$Ratio[result$Ratio=="Inf"] = 10
-    result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
-
+    if (file.exists(paste(db,"order.txt", sep = ""))){
+      result.final = rbind(result.final, result[which(result$Ratio > 
+                                                        (cutoff)), ])
+    } else {
+      result.final = rbind(result.final, result[which(result$Ratio > 
+                                                        (1)), ])
+    }
+    
     number = dim(result.final)[1]
     cat(number, " assigned\n\n")
-
+    
+    } else {
+      cat ("The file family.txt is missing, skipping assigning family...\n")
+    }
+    
+    if (file.exists(paste(db,"order.txt", sep = ""))){
+    
     cat("Starting Order... ")
-
+    
     Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+    
+    if (file.exists(paste(db,"class.txt", sep = ""))){
     table = read.table(paste(db,"order.txt", sep = ""),header = T, row.names = 1, sep = "\t")
     cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+    }
+    
     data = unique(merge(Rest, data))
     model = readRDS(paste(db,"order.rds", sep = ""))
     pred = predict(model, newdata=data)
     pred.prob = predict(model, newdata=data, type="prob")
     result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
     result$Ratio[result$Ratio=="Inf"] = 10
-    result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
-
+    if (file.exists(paste(db,"class.txt", sep = ""))){
+      result.final = rbind(result.final, result[which(result$Ratio > 
+                                                        (cutoff)), ])
+    } else {
+      result.final = rbind(result.final, result[which(result$Ratio >
+                                                        (1)), ])
+    }
+    
     number = dim(result.final)[1]
     cat(number, " assigned\n\n")
-
+    } else {
+      cat ("The file order.txt is missing, skipping assigning order...\n")
+    }
+    
+    if (file.exists(paste(db,"class.txt", sep = ""))){
     cat("Starting Class... ")
-
+    
     Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+    
+    if (file.exists(paste(db,"phylum.txt", sep = ""))){
     table = read.table(paste(db,"class.txt", sep=""), header = T, row.names = 1, sep = "\t")
     cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+    }
+    
     data = unique(merge(Rest, data))
     model = readRDS(paste(db,"class.rds", sep = ""))
     pred = predict(model, newdata=data)
     pred.prob = predict(model, newdata=data, type="prob")
     result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
     result$Ratio[result$Ratio=="Inf"] = 10
-    result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
-
+    if (file.exists(paste(db,"phylum.txt", sep = ""))){
+      result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
+    } else {
+      result.final = rbind(result.final, result[which(result$Ratio>(1)),])
+    }
+    
     number = dim(result.final)[1]
     cat(number, " assigned\n\n")
-
+    
+    } else {
+      cat ("The file class.txt is missing, skipping assigning class...\n")
+    }
+    
+    if (file.exists(paste(db,"phylum.txt", sep = ""))){
     cat("Starting Phylum... ")
-
+    
     Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+    
+    if (file.exists(paste(db,"domain.rds", sep = ""))){
     table = read.table(paste(db,"phylum.txt",sep=""), header = T, row.names = 1, sep = "\t")
     cutoff = rownames(table)[which.min(abs(table$Specificity/specificity -1))]
-
+    }
+    
     data = unique(merge(Rest, data))
     model = readRDS(paste(db,"phylum.rds", sep = ""))
     pred = predict(model, newdata=data)
     pred.prob = predict(model, newdata=data, type="prob")
     result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
     result$Ratio[result$Ratio=="Inf"] = 10
-    result.final = rbind(result.final, result[which(result$Ratio>(cutoff)),])
-
+    if (file.exists(paste(db,"domain.rds", sep = ""))){
+      result.final = rbind(result.final, result[which(result$Ratio > 
+                                                        (cutoff)), ])
+    } else {
+      result.final = rbind(result.final, result[which(result$Ratio>(1)),])
+    }
+    
     number = dim(result.final)[1]
     cat(number, " assigned\n\n")
-
+    
+    } else {
+      cat ("The file phylum.txt is missing, skipping assigning Phylum...\n")
+    }
+    
+    if (file.exists(paste(db,"domain.rds", sep = ""))){
+    
     cat("Starting Domain... ")
-
+    
     Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(cutoff))])
-
+    
     data = unique(merge(Rest, data))
     model = readRDS(paste(db,"domain.rds", sep = ""))
     pred = predict(model, newdata=data)
@@ -402,21 +549,24 @@ tagmeFromFasta <- function(file, db = "./", specificity = 0.8, batch = 50000){
     result = data.frame(seqID=data$seqID, Taxonomy=pred, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
     result$Ratio[result$Ratio=="Inf"] = 10
     result.final = rbind(result.final, result[which(result$Ratio>(1)),])
-
+    
     number = dim(result.final)[1]
     cat(number, " assigned\n\n")
-
+    
+    } else {
+      cat ("The file domain.rds is missing, skipping assigning domain...\n")
+    }
+    
     cat("Printing Unassigned... \n\n")
-
+    
     Rest = data.frame(seqID = result$seqID[which(result$Ratio<=(1))])
     if (dim(Rest)[1]>0) {
       data = unique(merge(Rest, data))
       pred = predict(model, newdata=data)
       pred.prob = predict(model, newdata=data, type="prob")
-      result = data.frame(seqID=data$seqID, Taxonomy="Unassigned", Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
+      result = data.frame(seqID=data$seqID, Taxonomy= NA, Best=apply(pred.prob, 1, max), Second=apply(pred.prob, 1, second), Ratio = log2(apply(pred.prob, 1, max)/apply(pred.prob, 1, second))*apply(pred.prob, 1, max))
       result.final = rbind(result.final, result)
     }
     return(result.final)
   }
 }
-
